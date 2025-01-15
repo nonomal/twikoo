@@ -69,7 +69,6 @@ typings/
 
 # Yarn Integrity file
 .yarn-integrity
-yarn.lock
 
 # dotenv environment variables file
 .env
@@ -92,7 +91,9 @@ dist
 # public
 
 # vuepress build output
-.vuepress/dist
+docs/.vuepress/dist
+docs/.vitepress/dist
+docs/.vitepress/cache
 
 # Serverless directories
 .serverless/
@@ -115,3 +116,9 @@ dist
 # database
 db.json
 db.json.*
+
+pnpm-lock.yaml
+.idea/
+
+# macOS
+.DS_Store

@@ -7,13 +7,15 @@
 
 <script>
 import md5 from 'blueimp-md5'
-import { convertLink, isQQ, getQQAvatar } from '../../utils'
+import { sha256 } from 'js-sha256'
+import { convertLink, normalizeMail, isQQ, getQQAvatar } from '../../utils'
 import iconUser from '@fortawesome/fontawesome-free/svgs/solid/user-circle.svg'
 
 export default {
   props: {
     config: Object,
     avatar: String,
+    nick: String,
     mail: String,
     mailMd5: String,
     link: String
@@ -27,29 +29,33 @@ export default {
     gravatarCdn () {
       if (this.config && this.config.GRAVATAR_CDN) {
         return this.config.GRAVATAR_CDN
-      } else {
-        return 'cravatar.cn'
       }
+      return 'weavatar.com'
     },
     defaultGravatar () {
       if (this.config && this.config.DEFAULT_GRAVATAR) {
         return this.config.DEFAULT_GRAVATAR
-      } else {
-        return 'identicon'
       }
+      if (this.gravatarCdn === 'weavatar.com') {
+        return `letter&letter=${this.nick.charAt(0)}`
+      }
+      return 'identicon'
     },
     avatarInner () {
       if (this.avatar) {
         return this.avatar
-      } else if (this.mailMd5) {
-        return `https://${this.gravatarCdn}/avatar/${this.mailMd5}?d=${this.defaultGravatar}`
-      } else if (this.mail && isQQ(this.mail)) {
-        return getQQAvatar(this.mail)
-      } else if (this.mail) {
-        return `https://${this.gravatarCdn}/avatar/${md5(this.mail)}?d=${this.defaultGravatar}`
-      } else {
-        return ''
       }
+      if (this.mailMd5) {
+        return `https://${this.gravatarCdn}/avatar/${this.mailMd5}?d=${this.defaultGravatar}`
+      }
+      if (this.mail && isQQ(this.mail)) {
+        return getQQAvatar(this.mail)
+      }
+      if (this.mail) {
+        const hashMethod = this.gravatarCdn === 'cravatar.cn' ? md5 : sha256
+        return `https://${this.gravatarCdn}/avatar/${hashMethod(normalizeMail(this.mail))}?d=${this.defaultGravatar}`
+      }
+      return ''
     }
   },
   methods: {

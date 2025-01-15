@@ -3,7 +3,7 @@
     <div class="tk-admin-warn" v-if="clientVersion !== serverVersion">
       <span>{{ t('ADMIN_CLIENT_VERSION') }}{{ clientVersion }}，</span>
       <span>{{ t('ADMIN_SERVER_VERSION') }}{{ serverVersion }}，</span>
-      <span>请参考&nbsp;<a href="https://twikoo.js.org/quick-start.html#%E7%89%88%E6%9C%AC%E6%9B%B4%E6%96%B0" target="_blank">版本更新</a>&nbsp;进行升级</span>
+      <span>请参考&nbsp;<a href="https://twikoo.js.org/update.html" target="_blank">版本更新</a>&nbsp;进行升级</span>
     </div>
     <div class="tk-admin-config-groups">
       <details class="tk-admin-config-group" v-for="settingGroup in settings" :key="settingGroup.name">
@@ -61,6 +61,7 @@ export default {
             { key: 'GRAVATAR_CDN', desc: t('ADMIN_CONFIG_ITEM_GRAVATAR_CDN'), ph: `${t('ADMIN_CONFIG_EXAMPLE')}sdn.geekzu.org`, value: '' },
             { key: 'DEFAULT_GRAVATAR', desc: t('ADMIN_CONFIG_ITEM_DEFAULT_GRAVATAR'), ph: `${t('ADMIN_CONFIG_EXAMPLE')}mp`, value: '' },
             { key: 'COMMENT_PLACEHOLDER', desc: t('ADMIN_CONFIG_ITEM_COMMENT_PLACEHOLDER'), ph: `${t('ADMIN_CONFIG_EXAMPLE')}`, value: '' },
+            { key: 'DISPLAYED_FIELDS', desc: t('ADMIN_CONFIG_ITEM_DISPLAYED_FIELDS'), ph: `${t('ADMIN_CONFIG_EXAMPLE')}nick,mail,link`, value: '' },
             { key: 'REQUIRED_FIELDS', desc: t('ADMIN_CONFIG_ITEM_REQUIRED_FIELDS'), ph: `${t('ADMIN_CONFIG_EXAMPLE')}nick,mail,link`, value: '' },
             { key: 'HIDE_ADMIN_CRYPT', desc: t('ADMIN_CONFIG_ITEM_HIDE_ADMIN_CRYPT'), ph: `${t('ADMIN_CONFIG_EXAMPLE')}admin`, value: '' }
           ]
@@ -70,11 +71,14 @@ export default {
           items: [
             { key: 'SHOW_IMAGE', desc: t('ADMIN_CONFIG_ITEM_SHOW_IMAGE'), ph: `${t('ADMIN_CONFIG_EXAMPLE')}false`, value: '' },
             { key: 'IMAGE_CDN', desc: t('ADMIN_CONFIG_ITEM_IMAGE_CDN'), ph: `${t('ADMIN_CONFIG_EXAMPLE')}qcloud`, value: '' },
+            { key: 'IMAGE_CDN_URL', desc: t('ADMIN_CONFIG_ITEM_IMAGE_CDN_URL'), ph: `${t('ADMIN_CONFIG_EXAMPLE')}https://piclist.example.com`, value: '' },
             { key: 'IMAGE_CDN_TOKEN', desc: t('ADMIN_CONFIG_ITEM_IMAGE_CDN_TOKEN'), ph: `${t('ADMIN_CONFIG_EXAMPLE')}example`, value: '' },
             { key: 'SHOW_EMOTION', desc: t('ADMIN_CONFIG_ITEM_SHOW_EMOTION'), ph: `${t('ADMIN_CONFIG_EXAMPLE')}false`, value: '' },
             { key: 'EMOTION_CDN', desc: t('ADMIN_CONFIG_ITEM_EMOTION_CDN'), ph: '', value: '' },
             { key: 'HIGHLIGHT', desc: t('ADMIN_CONFIG_ITEM_HIGHLIGHT'), ph: `${t('ADMIN_CONFIG_EXAMPLE')}false`, value: '' },
-            { key: 'HIGHLIGHT_THEME', desc: t('ADMIN_CONFIG_ITEM_HIGHLIGHT_THEME'), ph: `${t('ADMIN_CONFIG_EXAMPLE')}tomorrow`, value: '' }
+            { key: 'HIGHLIGHT_THEME', desc: t('ADMIN_CONFIG_ITEM_HIGHLIGHT_THEME'), ph: `${t('ADMIN_CONFIG_EXAMPLE')}tomorrow`, value: '' },
+            { key: 'HIGHLIGHT_PLUGIN', desc: t('ADMIN_CONFIG_ITEM_HIGHLIGHT_PLUGIN'), ph: `${t('ADMIN_CONFIG_EXAMPLE')}showLanguage`, value: '' },
+            { key: 'LIGHTBOX', desc: t('ADMIN_CONFIG_ITEM_LIGHTBOX'), ph: `${t('ADMIN_CONFIG_EXAMPLE')}true`, value: '' }
           ]
         },
         {
@@ -90,11 +94,15 @@ export default {
             { key: 'AKISMET_KEY', desc: t('ADMIN_CONFIG_ITEM_AKISMET_KEY'), ph: `${t('ADMIN_CONFIG_EXAMPLE')}8651783edxxx`, value: '' },
             { key: 'QCLOUD_SECRET_ID', desc: t('ADMIN_CONFIG_ITEM_QCLOUD_SECRET_ID'), ph: `${t('ADMIN_CONFIG_EXAMPLE')}AKIDBgZDdnbTw9D4ey9qPkrkwtb2Do9EwIHw`, value: '' },
             { key: 'QCLOUD_SECRET_KEY', desc: t('ADMIN_CONFIG_ITEM_QCLOUD_SECRET_KEY'), ph: `${t('ADMIN_CONFIG_EXAMPLE')}XrkOnvKWS7WeXbP1QZT76rPgtpWx73D7`, value: '', secret: true },
+            { key: 'QCLOUD_CMS_BIZTYPE', desc: t('ADMIN_CONFIG_ITEM_QCLOUD_CMS_BIZTYPE'), ph: `${t('ADMIN_CONFIG_EXAMPLE')}1787728329856520192`, value: '' },
             { key: 'LIMIT_PER_MINUTE', desc: t('ADMIN_CONFIG_ITEM_LIMIT_PER_MINUTE'), ph: `${t('ADMIN_CONFIG_EXAMPLE')}5`, value: '' },
             { key: 'LIMIT_PER_MINUTE_ALL', desc: t('ADMIN_CONFIG_ITEM_LIMIT_PER_MINUTE_ALL'), ph: `${t('ADMIN_CONFIG_EXAMPLE')}5`, value: '' },
             { key: 'LIMIT_LENGTH', desc: t('ADMIN_CONFIG_ITEM_LIMIT_LENGTH'), ph: `${t('ADMIN_CONFIG_EXAMPLE')}100`, value: '' },
             { key: 'FORBIDDEN_WORDS', desc: t('ADMIN_CONFIG_ITEM_FORBIDDEN_WORDS'), ph: `${t('ADMIN_CONFIG_EXAMPLE')}快递,空包`, value: '' },
-            { key: 'NOTIFY_SPAM', desc: t('ADMIN_CONFIG_ITEM_NOTIFY_SPAM'), ph: `${t('ADMIN_CONFIG_EXAMPLE')}false`, value: '' }
+            { key: 'BLOCKED_WORDS', desc: t('ADMIN_CONFIG_ITEM_BLOCKED_WORDS'), ph: `${t('ADMIN_CONFIG_EXAMPLE')}快递,空包`, value: '' },
+            { key: 'NOTIFY_SPAM', desc: t('ADMIN_CONFIG_ITEM_NOTIFY_SPAM'), ph: `${t('ADMIN_CONFIG_EXAMPLE')}false`, value: '' },
+            { key: 'TURNSTILE_SITE_KEY', desc: t('ADMIN_CONFIG_ITEM_TURNSTILE_SITE_KEY'), ph: `${t('ADMIN_CONFIG_EXAMPLE')}0x4AAAAAAAPLTtpBr_T12345`, value: '' },
+            { key: 'TURNSTILE_SECRET_KEY', desc: t('ADMIN_CONFIG_ITEM_TURNSTILE_SECRET_KEY'), ph: `${t('ADMIN_CONFIG_EXAMPLE')}0x4AAAAAAAPLTmBm6gHmOnOqC1iwmU12345`, value: '', secret: true }
           ]
         },
         {

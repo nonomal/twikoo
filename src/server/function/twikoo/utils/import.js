@@ -1,5 +1,7 @@
-const { getRelativeUrl } = require('.')
-const { marked, getDomPurify, md5 } = require('./lib')
+const { getRelativeUrl, normalizeMail } = require('.')
+const { getMarked, getDomPurify, getMd5 } = require('./lib')
+const marked = getMarked()
+const md5 = getMd5()
 
 const fn = {
   // 兼容 Leancloud 两种 JSON 导出格式
@@ -153,7 +155,7 @@ const fn = {
           nick: comment.nick,
           ip: comment.ip,
           mail: comment.email,
-          mailMd5: md5(comment.email),
+          mailMd5: md5(normalizeMail(comment.email)),
           isSpam: false,
           ua: comment.ua || '',
           link: comment.link,
@@ -200,7 +202,7 @@ const fn = {
           nick: comment.nick,
           ip: comment.ip,
           mail: comment.email,
-          mailMd5: md5(comment.email),
+          mailMd5: md5(normalizeMail(comment.email)),
           isSpam: comment.is_pending === 'true',
           ua: comment.ua || '',
           link: comment.link,

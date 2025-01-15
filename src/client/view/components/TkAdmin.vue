@@ -1,19 +1,21 @@
 <template>
   <div class="tk-admin-container">
     <div class="tk-admin" :class="{ '__show': show }" v-loading="loading">
-      <a class="tk-admin-close" @click="onClose" v-html="iconClose"></a>
+      <a class="tk-admin-close" href="#" @click="onClose" v-html="iconClose"></a>
       <div class="tk-login-title" v-if="needUpdate">
         <div>{{ t('ADMIN_NEED_UPDATE') }}</div>
-        <a href="https://twikoo.js.org/quick-start.html" target="_blank">https://twikoo.js.org/quick-start.html</a>
+        <a href="https://twikoo.js.org/update.html" target="_blank">https://twikoo.js.org/update.html</a>
       </div>
       <div v-if="!needUpdate">
         <div class="tk-login" v-if="!isLogin && isSetPassword">
           <div class="tk-login-title">{{ t('ADMIN_LOGIN_TITLE') }}</div>
-          <input type="hidden" />
-          <el-input class="tk-password" :placeholder="t('ADMIN_PASSWORD_PLACEHOLDER')" v-model="password" show-password @keyup.enter.native="onLogin" ref="focusme">
-            <template slot="prepend">{{ t('ADMIN_PASSWORD') }}</template>
-            <el-button slot="append" @click="onLogin">{{ t('ADMIN_LOGIN') }}</el-button>
-          </el-input>
+          <form>
+            <input type="hidden" />
+            <el-input class="tk-password" :placeholder="t('ADMIN_PASSWORD_PLACEHOLDER')" v-model="password" show-password @keyup.enter.native="onLogin" ref="focusme">
+              <template slot="prepend">{{ t('ADMIN_PASSWORD') }}</template>
+              <el-button slot="append" @click="onLogin">{{ t('ADMIN_LOGIN') }}</el-button>
+            </el-input>
+          </form>
           <div class="tk-login-msg" v-if="loginErrorMessage">
             {{ loginErrorMessage }}
             <a href="https://twikoo.js.org/faq.html" rel="noopener noreferrer" target="_blank">{{ t('ADMIN_FORGOT') }}</a>
@@ -21,15 +23,17 @@
         </div>
         <div class="tk-regist" v-if="!isLogin && !isSetPassword">
           <div class="tk-login-title">{{ t('ADMIN_LOGIN_TITLE') }}</div>
-          <el-input class="tk-password" :placeholder="t('ADMIN_CREDENTIALS_PLACEHOLDER')" v-if="!isSetCredentials" v-model="credentials" ref="focusme">
-            <template slot="prepend">{{ t('ADMIN_CREDENTIALS') }}</template>
-          </el-input>
-          <el-input class="tk-password" :placeholder="t('ADMIN_SET_PASSWORD_PLACEHOLDER')" v-model="password" show-password>
-            <template slot="prepend">{{ t('ADMIN_SET_PASSWORD') }}</template>
-          </el-input>
-          <el-input class="tk-password" :placeholder="t('ADMIN_SET_PASSWORD_CONFIRM_PLACEHOLDER')" v-model="passwordConfirm" show-password>
-            <template slot="prepend">{{ t('ADMIN_SET_PASSWORD_CONFIRM') }}</template>
-          </el-input>
+          <form>
+            <el-input class="tk-password" :placeholder="t('ADMIN_CREDENTIALS_PLACEHOLDER')" v-if="!isSetCredentials" v-model="credentials" ref="focusme">
+              <template slot="prepend">{{ t('ADMIN_CREDENTIALS') }}</template>
+            </el-input>
+            <el-input class="tk-password" :placeholder="t('ADMIN_SET_PASSWORD_PLACEHOLDER')" v-model="password" show-password>
+              <template slot="prepend">{{ t('ADMIN_SET_PASSWORD') }}</template>
+            </el-input>
+            <el-input class="tk-password" :placeholder="t('ADMIN_SET_PASSWORD_CONFIRM_PLACEHOLDER')" v-model="passwordConfirm" show-password>
+              <template slot="prepend">{{ t('ADMIN_SET_PASSWORD_CONFIRM') }}</template>
+            </el-input>
+          </form>
           <el-button class="tk-regist-button" :disabled="!canRegist" @click="onRegist">{{ t('ADMIN_REGIST') }}</el-button>
           <div class="tk-login-msg" v-if="loginErrorMessage">{{ loginErrorMessage }}</div>
           <div class="tk-login-msg" v-if="!isSetCredentials">
@@ -39,7 +43,7 @@
         <div class="tk-panel" v-if="isLogin">
           <div class="tk-panel-title">
             <div>{{ t('ADMIN_TITLE') }}</div>
-            <a class="tk-panel-logout" @click="onLogout">{{ t('ADMIN_LOGOUT') }}</a>
+            <a class="tk-panel-logout" href="#" @click="onLogout">{{ t('ADMIN_LOGOUT') }}</a>
           </div>
           <div class="tk-tabs">
             <div class="tk-tab" :class="{ __active: activeTabName === 'comment' }" @click="activeTabName = 'comment'">{{ t('ADMIN_COMMENT') }}</div>
@@ -134,7 +138,8 @@ export default {
       }
       this.loading = false
     },
-    async onLogout () {
+    async onLogout ($event) {
+      $event.preventDefault()
       this.loading = true
       if (this.$tcb) {
         await this.$tcb.auth.signOut()
@@ -207,7 +212,8 @@ export default {
         throw e
       }
     },
-    onClose () {
+    onClose ($event) {
+      $event.preventDefault()
       this.$emit('close')
     }
   },
@@ -275,6 +281,8 @@ export default {
   display: flex;
   flex-direction: column;
   align-items: center;
+  width: 100%;
+  padding: 0 2rem;
 }
 .tk-login-title {
   color: #ffffff;

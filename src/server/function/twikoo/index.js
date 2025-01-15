@@ -7,10 +7,11 @@
 const { version: VERSION } = require('./package.json')
 const tcb = require('@cloudbase/node-sdk') // 云开发 SDK
 const {
-  $,
+  getCheerio,
   getDomPurify,
-  md5,
-  xml2js
+  getMd5,
+  getSha256,
+  getXml2js
 } = require('./utils/lib')
 const {
   getFuncVersion,
@@ -18,6 +19,8 @@ const {
   getUrlsQuery,
   parseComment,
   parseCommentForAdmin,
+  normalizeMail,
+  equalsMail,
   getMailMd5,
   getAvatar,
   isQQ,
@@ -25,6 +28,7 @@ const {
   getQQAvatar,
   getPasswordStatus,
   preCheckSpam,
+  checkTurnstileCaptcha,
   getConfig,
   getConfigForAdmin,
   validate
@@ -40,13 +44,18 @@ const {
 const { postCheckSpam } = require('./utils/spam')
 const { sendNotice, emailTest } = require('./utils/notify')
 const { uploadImage } = require('./utils/image')
+const logger = require('./utils/logger')
 
 // 云函数 SDK / tencent cloudbase sdk
 const app = tcb.init({ env: tcb.SYMBOL_CURRENT_ENV })
 const auth = app.auth()
 const db = app.database()
 const _ = db.command
+const $ = getCheerio()
 const DOMPurify = getDomPurify()
+const md5 = getMd5()
+const sha256 = getSha256()
+const xml2js = getXml2js()
 
 // 常量 / constants
 const { RES_CODE, MAX_REQUEST_TIMES } = require('./utils/constants')
@@ -60,9 +69,9 @@ const requestTimes = {}
 
 // 云函数入口点 / entry point
 exports.main = async (event, context) => {
-  console.log('请求 IP：', auth.getClientIP())
-  console.log('请求函数：', event.event)
-  console.log('请求参数：', event)
+  logger.log('请求 IP：', auth.getClientIP())
+  logger.log('请求函数：', event.event)
+  logger.log('请求参数：', event)
   let res = {}
   try {
     protect()
@@ -137,17 +146,17 @@ exports.main = async (event, context) => {
           res.message = '请更新 Twikoo 云函数至最新版本'
         } else {
           res.code = RES_CODE.SUCCESS
-          res.message = 'Twikoo 云函数运行正常，请参考 https://twikoo.js.org/quick-start.html#%E5%89%8D%E7%AB%AF%E9%83%A8%E7%BD%B2 完成前端的配置'
+          res.message = 'Twikoo 云函数运行正常，请参考 https://twikoo.js.org/frontend.html 完成前端的配置'
         }
     }
   } catch (e) {
-    console.error('Twikoo 遇到错误，请参考以下错误信息。如有疑问，请反馈至 https://github.com/imaegoo/twikoo/issues')
-    console.error('请求参数：', event)
-    console.error('错误信息：', e)
+    logger.error('Twikoo 遇到错误，请参考以下错误信息。如有疑问，请反馈至 https://github.com/twikoojs/twikoo/issues')
+    logger.error('请求参数：', event)
+    logger.error('错误信息：', e)
     res.code = RES_CODE.FAIL
     res.message = e.message
   }
-  console.log('请求返回：', res)
+  logger.log('请求返回：', res)
   return res
 }
 
@@ -182,7 +191,7 @@ async function checkAndSaveCredentials (credentials) {
     await writeConfig({ CREDENTIALS: credentials })
     return true
   } catch (e) {
-    console.error('私钥文件异常：', e)
+    logger.error('私钥文件异常：', e)
     return false
   }
 }
@@ -452,7 +461,7 @@ async function commentImportForAdmin (event) {
     }
     res.code = RES_CODE.SUCCESS
     res.log = logText
-    console.log(logText)
+    logger.info(logText)
   } else {
     res.code = RES_CODE.NEED_LOGIN
     res.message = '请先登录'
@@ -560,6 +569,8 @@ async function commentSubmit (event, context) {
   validate(event, ['url', 'ua', 'comment'])
   // 限流
   await limitFilter()
+  // 验证码
+  await checkCaptcha(event)
   // 预检测、转换
   const data = await parse(event)
   // 保存
@@ -572,7 +583,7 @@ async function commentSubmit (event, context) {
       data: { event: 'POST_SUBMIT', comment }
     }, { timeout: 300 }) // 设置较短的 timeout 来实现异步
   } catch (e) {
-    console.log('开始异步垃圾检测、发送评论通知')
+    logger.log('开始异步垃圾检测、发送评论通知')
   }
   return res
 }
@@ -609,13 +620,14 @@ async function postSubmit (comment, context) {
 async function parse (comment) {
   const timestamp = Date.now()
   const isAdminUser = await isAdmin()
-  const isBloggerMail = comment.mail && comment.mail === config.BLOGGER_EMAIL
+  const isBloggerMail = equalsMail(comment.mail, config.BLOGGER_EMAIL)
   if (isBloggerMail && !isAdminUser) throw new Error('请先登录管理面板，再使用博主身份发送评论')
+  const hashMethod = config.GRAVATAR_CDN === 'cravatar.cn' ? md5 : sha256
   const commentDo = {
     uid: await getUid(),
     nick: comment.nick ? comment.nick : '匿名',
     mail: comment.mail ? comment.mail : '',
-    mailMd5: comment.mail ? md5(comment.mail) : '',
+    mailMd5: comment.mail ? hashMethod(normalizeMail(comment.mail)) : '',
     link: comment.link ? comment.link : '',
     ua: comment.ua,
     ip: auth.getClientIP(),
@@ -631,7 +643,7 @@ async function parse (comment) {
   }
   if (isQQ(comment.mail)) {
     commentDo.mail = addQQMailSuffix(comment.mail)
-    commentDo.mailMd5 = md5(commentDo.mail)
+    commentDo.mailMd5 = hashMethod(normalizeMail(commentDo.mail))
     commentDo.avatar = await getQQAvatar(comment.mail)
   }
   return commentDo
@@ -669,6 +681,16 @@ async function limitFilter () {
     if (count > limitPerMinuteAll) {
       throw new Error('评论太火爆啦 >_< 请稍后再试')
     }
+  }
+}
+
+async function checkCaptcha (comment) {
+  if (config.TURNSTILE_SITE_KEY && config.TURNSTILE_SECRET_KEY) {
+    await checkTurnstileCaptcha({
+      ip: auth.getClientIP(),
+      turnstileToken: comment.turnstileToken,
+      turnstileTokenSecretKey: config.TURNSTILE_SECRET_KEY
+    })
   }
 }
 
@@ -786,6 +808,9 @@ async function getRecentComments (event) {
   try {
     const query = {}
     query.isSpam = _.neq(true)
+    if (event.urls && event.urls.length) {
+      query.url = _.in(getUrlsQuery(event.urls))
+    }
     if (!event.includeReply) query.rid = _.in(['', null])
     if (event.pageSize > 100) event.pageSize = 100
     const result = await db
@@ -836,10 +861,10 @@ function protect () {
   const ip = auth.getClientIP()
   requestTimes[ip] = (requestTimes[ip] || 0) + 1
   if (requestTimes[ip] > MAX_REQUEST_TIMES) {
-    console.log(`${ip} 当前请求次数为 ${requestTimes[ip]}，已超过最大请求次数`)
+    logger.warn(`${ip} 当前请求次数为 ${requestTimes[ip]}，已超过最大请求次数`)
     throw new Error('Too Many Requests')
   } else {
-    console.log(`${ip} 当前请求次数为 ${requestTimes[ip]}`)
+    logger.log(`${ip} 当前请求次数为 ${requestTimes[ip]}`)
   }
 }
 
@@ -853,7 +878,7 @@ async function readConfig () {
     config = res.data[0] || {}
     return config
   } catch (e) {
-    console.error('读取配置失败：', e)
+    logger.error('读取配置失败：', e)
     await createCollections()
     config = {}
     return config
@@ -863,7 +888,7 @@ async function readConfig () {
 // 写入配置
 async function writeConfig (newConfig) {
   if (!Object.keys(newConfig).length) return 0
-  console.log('写入配置：', newConfig)
+  logger.info('写入配置：', newConfig)
   try {
     let updated
     let res = await db
@@ -882,7 +907,7 @@ async function writeConfig (newConfig) {
     if (updated > 0) config = null
     return updated
   } catch (e) {
-    console.error('写入配置失败：', e)
+    logger.error('写入配置失败：', e)
     return null
   }
 }
@@ -913,7 +938,7 @@ async function createCollections () {
     try {
       res[collection] = await db.createCollection(collection)
     } catch (e) {
-      console.error('建立数据库失败：', e)
+      logger.error('建立数据库失败：', e)
     }
   }
   return res
