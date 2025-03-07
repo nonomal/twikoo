@@ -1,7 +1,30 @@
 const { URL } = require('url')
-const { axios, bowser, ipToRegion, md5 } = require('./lib')
+const {
+  getAxios,
+  getFormData,
+  getBowser,
+  getIpToRegion,
+  getMd5,
+  getSha256
+} = require('./lib')
+const axios = getAxios()
+const FormData = getFormData()
+const bowser = getBowser()
+const md5 = getMd5()
+const sha256 = getSha256()
 const { RES_CODE } = require('./constants')
-const ipRegionSearcher = ipToRegion.create() // 初始化 IP 属地
+const logger = require('./logger')
+
+let ipRegionSearcher
+
+// IP 属地查询
+function getIpRegionSearcher () {
+  if (!ipRegionSearcher) {
+    const ipToRegion = getIpToRegion()
+    ipRegionSearcher = ipToRegion.create() // 初始化 IP 属地
+  }
+  return ipRegionSearcher
+}
 
 const fn = {
   // 获取 Twikoo 云函数版本
@@ -44,11 +67,11 @@ const fn = {
     if (config.SHOW_UA !== 'false') {
       try {
         const ua = bowser.getParser(comment.ua)
-        const os = ua.getOS()
+        const os = fn.fixOS(ua)
         displayOs = [os.name, os.versionName ? os.versionName : os.version].join(' ')
         displayBrowser = [ua.getBrowserName(), ua.getBrowserVersion()].join(' ')
       } catch (e) {
-        console.log('bowser 错误：', e)
+        logger.warn('bowser 错误：', e)
       }
     }
     const showRegion = !!config.SHOW_REGION && config.SHOW_REGION !== 'false'
@@ -75,6 +98,50 @@ const fn = {
       updated: comment.updated
     }
   },
+  fixOS (ua) {
+    const os = ua.getOS()
+    if (!os.versionName) {
+      // fix version name of Win 11 & macOS ^11 & Android ^10
+      if (os.name === 'Windows' && os.version === 'NT 11.0') {
+        os.versionName = '11'
+      } else if (os.name === 'macOS') {
+        const majorPlatformVersion = os.version.split('.')[0]
+        os.versionName = {
+          11: 'Big Sur',
+          12: 'Monterey',
+          13: 'Ventura',
+          14: 'Sonoma',
+          15: 'Sequoia'
+        }[majorPlatformVersion]
+      } else if (os.name === 'Android') {
+        const majorPlatformVersion = os.version.split('.')[0]
+        os.versionName = {
+          10: 'Quince Tart',
+          11: 'Red Velvet Cake',
+          12: 'Snow Cone',
+          13: 'Tiramisu',
+          14: 'Upside Down Cake',
+          15: 'Vanilla Ice Cream',
+          16: 'Baklava'
+        }[majorPlatformVersion]
+      } else if (ua.test(/harmony/i)) {
+        os.name = 'Harmony'
+        os.version = fn.getFirstMatch(/harmony[\s/-](\d+(\.\d+)*)/i, ua.getUA())
+        os.versionName = ''
+      }
+    }
+    return os
+  },
+  /**
+   * Get first matched item for a string
+   * @param {RegExp} regexp
+   * @param {String} ua
+   * @return {Array|{index: number, input: string}|*|boolean|string}
+   */
+  getFirstMatch (regexp, ua) {
+    const match = ua.match(regexp)
+    return (match && match.length > 0 && match[1]) || ''
+  },
   // 获取回复人昵称 / Get replied user nick name
   ruser (pid, comments = []) {
     const comment = comments.find((item) => item._id === pid)
@@ -90,17 +157,19 @@ const fn = {
     try {
       // 将 IPv6 格式的 IPv4 地址转换为 IPv4 格式
       ip = ip.replace(/^::ffff:/, '')
-      const { region } = ipRegionSearcher.binarySearchSync(ip)
+      // Zeabur 返回的地址带端口号，去掉端口号。TODO: 不知道该怎么去掉 IPv6 地址后面的端口号
+      ip = ip.replace(/:[0-9]*$/, '')
+      const { region } = getIpRegionSearcher().binarySearchSync(ip)
       const [country,, province, city, isp] = region.split('|')
       // 有省显示省，没有省显示国家
-      const area = province.trim() ? province : country
+      const area = province.trim() && province !== '0' ? province : country
       if (detail) {
         return area === city ? [city, isp].join(' ') : [area, city, isp].join(' ')
       } else {
         return area.replace(/(省|市)$/, '')
       }
     } catch (e) {
-      console.error('IP 属地查询失败：', e.message)
+      logger.warn('IP 属地查询失败：', e.message, ip)
       return ''
     }
   },
@@ -118,23 +187,39 @@ const fn = {
       return url
     }
   },
+  normalizeMail (mail) {
+    return String(mail).trim().toLowerCase()
+  },
+  equalsMail (mail1, mail2) {
+    if (!mail1 || !mail2) return false
+    return fn.normalizeMail(mail1) === fn.normalizeMail(mail2)
+  },
   getMailMd5 (comment) {
     if (comment.mailMd5) {
       return comment.mailMd5
     }
     if (comment.mail) {
-      return md5(comment.mail)
+      return md5(fn.normalizeMail(comment.mail))
     }
     return md5(comment.nick)
+  },
+  getMailSha256 (comment) {
+    if (comment.mail) {
+      return sha256(fn.normalizeMail(comment.mail))
+    }
+    return sha256(comment.nick)
   },
   getAvatar (comment, config) {
     if (comment.avatar) {
       return comment.avatar
     } else {
-      const gravatarCdn = config.GRAVATAR_CDN || 'cravatar.cn'
-      const defaultGravatar = config.DEFAULT_GRAVATAR || 'identicon'
-      const mailMd5 = fn.getMailMd5(comment)
-      return `https://${gravatarCdn}/avatar/${mailMd5}?d=${defaultGravatar}`
+      const gravatarCdn = config.GRAVATAR_CDN || 'weavatar.com'
+      let defaultGravatar = gravatarCdn === 'weavatar.com' ? `letter&letter=${comment.nick.charAt(0)}` : 'identicon'
+      if (config.DEFAULT_GRAVATAR) {
+        defaultGravatar = config.DEFAULT_GRAVATAR
+      }
+      const mailHash = gravatarCdn === 'cravatar.cn' ? fn.getMailMd5(comment) : fn.getMailSha256(comment) // Cravatar 不支持 sha256
+      return `https://${gravatarCdn}/avatar/${mailHash}?d=${defaultGravatar}`
     }
   },
   isUrl (s) {
@@ -151,13 +236,11 @@ const fn = {
   async getQQAvatar (qq) {
     try {
       const qqNum = qq.replace(/@qq.com/ig, '')
-      const result = await axios.get(`https://s.p.qq.com/pub/get_face?img_type=4&uin=${qqNum}`, {
-        maxRedirects: 0,
-        validateStatus: status => [301, 302, 307, 308].includes(status)
-      })
-      return result?.headers?.location || null
+      // TODO: 这个接口已经失效了，暂时找不到新的接口
+      const result = await axios.get(`https://aq.qq.com/cn2/get_img/get_face?img_type=3&uin=${qqNum}`)
+      return result.data?.url || null
     } catch (e) {
-      console.error('获取 QQ 头像失败：', e)
+      logger.warn('获取 QQ 头像失败：', e)
     }
   },
   // 判断是否存在管理员密码
@@ -177,20 +260,48 @@ const fn = {
     if (limitLength && comment.length > limitLength) {
       throw new Error('评论内容过长')
     }
+    if (config.BLOCKED_WORDS) {
+      const commentLowerCase = comment.toLowerCase()
+      const nickLowerCase = nick.toLowerCase()
+      for (const blockedWord of config.BLOCKED_WORDS.split(',')) {
+        const blockedWordLowerCase = blockedWord.trim().toLowerCase()
+        if (commentLowerCase.indexOf(blockedWordLowerCase) !== -1 || nickLowerCase.indexOf(blockedWordLowerCase) !== -1) {
+          throw new Error('包含屏蔽词')
+        }
+      }
+    }
     if (config.AKISMET_KEY === 'MANUAL_REVIEW') {
       // 人工审核
-      console.log('已使用人工审核模式，评论审核后才会发表~')
+      logger.info('已使用人工审核模式，评论审核后才会发表~')
       return true
     } else if (config.FORBIDDEN_WORDS) {
       // 违禁词检测
-      for (const forbiddenWord of config.FORBIDDEN_WORDS.split(',')) {
-        if (comment.indexOf(forbiddenWord.trim()) !== -1 || nick.indexOf(forbiddenWord.trim()) !== -1) {
-          console.log('包含违禁词，直接标记为垃圾评论~')
+      const commentLowerCase = comment.toLowerCase()
+      const nickLowerCase = nick.toLowerCase()
+      for (const forbiddenWord of config.FORBIDDEN_WORDS.replace(/,+$/, '').split(',')) {
+        const forbiddenWordLowerCase = forbiddenWord.trim().toLowerCase()
+        if (commentLowerCase.indexOf(forbiddenWordLowerCase) !== -1 || nickLowerCase.indexOf(forbiddenWordLowerCase) !== -1) {
+          logger.warn('包含违禁词，直接标记为垃圾评论~')
           return true
         }
       }
     }
     return false
+  },
+  async checkTurnstileCaptcha ({ ip, turnstileToken, turnstileTokenSecretKey }) {
+    try {
+      const formData = new FormData()
+      formData.append('secret', turnstileTokenSecretKey)
+      formData.append('response', turnstileToken)
+      formData.append('remoteip', ip)
+      const { data } = await axios.post('https://challenges.cloudflare.com/turnstile/v0/siteverify', formData, {
+        headers: formData.getHeaders()
+      })
+      logger.log('验证码检测结果', data)
+      if (!data.success) throw new Error('验证码错误')
+    } catch (e) {
+      throw new Error('验证码检测失败: ' + e.message)
+    }
   },
   async getConfig ({ config, VERSION, isAdmin }) {
     return {
@@ -206,14 +317,18 @@ const fn = {
         DEFAULT_GRAVATAR: config.DEFAULT_GRAVATAR,
         SHOW_IMAGE: config.SHOW_IMAGE || 'true',
         IMAGE_CDN: config.IMAGE_CDN,
+        LIGHTBOX: config.LIGHTBOX || 'false',
         SHOW_EMOTION: config.SHOW_EMOTION || 'true',
         EMOTION_CDN: config.EMOTION_CDN,
         COMMENT_PLACEHOLDER: config.COMMENT_PLACEHOLDER,
+        DISPLAYED_FIELDS: config.DISPLAYED_FIELDS,
         REQUIRED_FIELDS: config.REQUIRED_FIELDS,
         HIDE_ADMIN_CRYPT: config.HIDE_ADMIN_CRYPT,
         HIGHLIGHT: config.HIGHLIGHT || 'true',
         HIGHLIGHT_THEME: config.HIGHLIGHT_THEME,
-        LIMIT_LENGTH: config.LIMIT_LENGTH
+        HIGHLIGHT_PLUGIN: config.HIGHLIGHT_PLUGIN,
+        LIMIT_LENGTH: config.LIMIT_LENGTH,
+        TURNSTILE_SITE_KEY: config.TURNSTILE_SITE_KEY
       }
     }
   },

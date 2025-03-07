@@ -10,10 +10,11 @@ const getUserIP = require('get-user-ip')
 const { URL } = require('url')
 const { v4: uuidv4 } = require('uuid') // 用户 id 生成
 const {
-  $,
+  getCheerio,
   getDomPurify,
-  md5,
-  xml2js
+  getMd5,
+  getSha256,
+  getXml2js
 } = require('twikoo-func/utils/lib')
 const {
   getFuncVersion,
@@ -21,6 +22,8 @@ const {
   getUrlsQuery,
   parseComment,
   parseCommentForAdmin,
+  normalizeMail,
+  equalsMail,
   getMailMd5,
   getAvatar,
   isQQ,
@@ -28,6 +31,7 @@ const {
   getQQAvatar,
   getPasswordStatus,
   preCheckSpam,
+  checkTurnstileCaptcha,
   getConfig,
   getConfigForAdmin,
   validate
@@ -43,8 +47,13 @@ const {
 const { postCheckSpam } = require('twikoo-func/utils/spam')
 const { sendNotice, emailTest } = require('twikoo-func/utils/notify')
 const { uploadImage } = require('twikoo-func/utils/image')
+const logger = require('twikoo-func/utils/logger')
 
+const $ = getCheerio()
 const DOMPurify = getDomPurify()
+const md5 = getMd5()
+const sha256 = getSha256()
+const xml2js = getXml2js()
 
 // 常量 / constants
 const { RES_CODE, MAX_REQUEST_TIMES } = require('twikoo-func/utils/constants')
@@ -58,9 +67,9 @@ let requestTimes = {}
 module.exports = async (request, response) => {
   let accessToken
   const event = request.body || {}
-  console.log('请求 IP：', getIp(request))
-  console.log('请求函数：', event.event)
-  console.log('请求参数：', event)
+  logger.log('请求 IP：', getIp(request))
+  logger.log('请求函数：', event.event)
+  logger.log('请求参数：', event)
   let res = {}
   try {
     protect(request)
@@ -139,21 +148,21 @@ module.exports = async (request, response) => {
           res.message = '请更新 Twikoo 云函数至最新版本'
         } else {
           res.code = RES_CODE.NO_PARAM
-          res.message = 'Twikoo 云函数运行正常，请参考 https://twikoo.js.org/quick-start.html#%E5%89%8D%E7%AB%AF%E9%83%A8%E7%BD%B2 完成前端的配置'
+          res.message = 'Twikoo 云函数运行正常，请参考 https://twikoo.js.org/frontend.html 完成前端的配置'
           res.version = VERSION
         }
     }
   } catch (e) {
-    console.error('Twikoo 遇到错误，请参考以下错误信息。如有疑问，请反馈至 https://github.com/imaegoo/twikoo/issues')
-    console.error('请求参数：', event)
-    console.error('错误信息：', e)
+    logger.error('Twikoo 遇到错误，请参考以下错误信息。如有疑问，请反馈至 https://github.com/twikoojs/twikoo/issues')
+    logger.error('请求参数：', event)
+    logger.error('错误信息：', e)
     res.code = RES_CODE.FAIL
     res.message = e.message
   }
   if (!res.code && !request.body.accessToken) {
     res.accessToken = accessToken
   }
-  console.log('请求返回：', res)
+  logger.log('请求返回：', res)
   response.status(200).json(res)
 }
 
@@ -172,13 +181,22 @@ function allowCors (request, response) {
 
 function getAllowedOrigin (request) {
   const localhostRegex = /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d{1,5})?$/
-  if (localhostRegex.test(request.headers.origin)) {
-    return request.headers.origin
-  } else if (config.CORS_ALLOW_ORIGIN) {
-    // 许多用户设置安全域名时，喜欢带结尾的 "/"，必须处理掉
-    return config.CORS_ALLOW_ORIGIN.replace(/\/$/, '')
+  if (localhostRegex.test(request.headers.origin)) { // 判断是否为本地主机，如是则允许跨域
+    return request.headers.origin // Allow
+  } else if (config.CORS_ALLOW_ORIGIN) { // 如设置了安全域名则检查
+    // 适配多条 CORS 规则
+    // 以逗号分隔 CORS
+    const corsList = config.CORS_ALLOW_ORIGIN.split(',')
+    // 遍历 CORS 列表
+    for (let i = 0; i < corsList.length; i++) {
+      const cors = corsList[i].replace(/\/$/, '') // 获取当前 CORS 并去除末尾的斜杠
+      if (cors === request.headers.origin) {
+        return request.headers.origin // Allow
+      }
+    }
+    return '' // 不在安全域名列表中则禁止跨域
   } else {
-    return request.headers.origin
+    return request.headers.origin // 未设置安全域名直接 Allow
   }
 }
 
@@ -200,17 +218,14 @@ async function connectToDatabase (uri) {
   if (db) return db
   if (!uri) throw new Error('未设置环境变量 MONGODB_URI | MONGO_URL')
   // If no connection is cached, create a new one
-  console.log('Connecting to database...')
-  const client = await MongoClient.connect(uri, {
-    useNewUrlParser: true,
-    useUnifiedTopology: true
-  })
+  logger.info('Connecting to database...')
+  const client = await MongoClient.connect(uri, {})
   // Select the database through the connection,
   // using the database path of the connection string
   const dbName = (new URL(uri)).pathname.substring(1) || 'twikoo'
   db = await client.db(dbName)
   // Cache the database connection and return the connection
-  console.log('Connected to database')
+  logger.info('Connected to database')
   return db
 }
 
@@ -480,7 +495,7 @@ async function commentImportForAdmin (event) {
     }
     res.code = RES_CODE.SUCCESS
     res.log = logText
-    console.log(logText)
+    logger.info(logText)
   } else {
     res.code = RES_CODE.NEED_LOGIN
     res.message = '请先登录'
@@ -582,13 +597,15 @@ async function commentSubmit (event, request) {
   validate(event, ['url', 'ua', 'comment'])
   // 限流
   await limitFilter(request)
+  // 验证码
+  await checkCaptcha(event, request)
   // 预检测、转换
   const data = await parse(event, request)
   // 保存
   const comment = await save(data)
   res.id = comment.id
   // 异步垃圾检测、发送评论通知
-  console.log('开始异步垃圾检测、发送评论通知')
+  logger.log('开始异步垃圾检测、发送评论通知')
   // 私有部署支持直接异步调用
   postSubmit(comment)
   return res
@@ -613,14 +630,14 @@ async function getParentComment (currentComment) {
 // 异步垃圾检测、发送评论通知
 async function postSubmit (comment) {
   try {
-    console.log('POST_SUBMIT')
+    logger.log('POST_SUBMIT')
     // 垃圾检测
     const isSpam = await postCheckSpam(comment, config)
     await saveSpamCheckResult(comment, isSpam)
     // 发送通知
     await sendNotice(comment, config, getParentComment)
   } catch (e) {
-    console.log('POST_SUBMIT 失败', e)
+    logger.warn('POST_SUBMIT 失败', e)
   }
 }
 
@@ -628,14 +645,15 @@ async function postSubmit (comment) {
 async function parse (comment, request) {
   const timestamp = Date.now()
   const isAdminUser = isAdmin(request.body.accessToken)
-  const isBloggerMail = comment.mail && comment.mail === config.BLOGGER_EMAIL
+  const isBloggerMail = equalsMail(comment.mail, config.BLOGGER_EMAIL)
   if (isBloggerMail && !isAdminUser) throw new Error('请先登录管理面板，再使用博主身份发送评论')
+  const hashMethod = config.GRAVATAR_CDN === 'cravatar.cn' ? md5 : sha256
   const commentDo = {
     _id: uuidv4().replace(/-/g, ''),
     uid: request.body.accessToken,
     nick: comment.nick ? comment.nick : '匿名',
     mail: comment.mail ? comment.mail : '',
-    mailMd5: comment.mail ? md5(comment.mail) : '',
+    mailMd5: comment.mail ? hashMethod(normalizeMail(comment.mail)) : '',
     link: comment.link ? comment.link : '',
     ua: comment.ua,
     ip: getIp(request),
@@ -651,7 +669,7 @@ async function parse (comment, request) {
   }
   if (isQQ(comment.mail)) {
     commentDo.mail = addQQMailSuffix(comment.mail)
-    commentDo.mailMd5 = md5(commentDo.mail)
+    commentDo.mailMd5 = hashMethod(normalizeMail(commentDo.mail))
     commentDo.avatar = await getQQAvatar(comment.mail)
   }
   return commentDo
@@ -685,6 +703,16 @@ async function limitFilter (request) {
     if (count > limitPerMinuteAll) {
       throw new Error('评论太火爆啦 >_< 请稍后再试')
     }
+  }
+}
+
+async function checkCaptcha (comment, request) {
+  if (config.TURNSTILE_SITE_KEY && config.TURNSTILE_SECRET_KEY) {
+    await checkTurnstileCaptcha({
+      ip: getIp(request),
+      turnstileToken: comment.turnstileToken,
+      turnstileTokenSecretKey: config.TURNSTILE_SECRET_KEY
+    })
   }
 }
 
@@ -804,6 +832,9 @@ async function getRecentComments (event) {
   try {
     const query = {}
     query.isSpam = { $ne: true }
+    if (event.urls && event.urls.length) {
+      query.url = { $in: getUrlsQuery(event.urls) }
+    }
     if (!event.includeReply) query.rid = { $in: ['', null] }
     if (event.pageSize > 100) event.pageSize = 100
     const result = await db
@@ -853,10 +884,10 @@ function protect (request) {
   const ip = getIp(request)
   requestTimes[ip] = (requestTimes[ip] || 0) + 1
   if (requestTimes[ip] > MAX_REQUEST_TIMES) {
-    console.log(`${ip} 当前请求次数为 ${requestTimes[ip]}，已超过最大请求次数`)
+    logger.warn(`${ip} 当前请求次数为 ${requestTimes[ip]}，已超过最大请求次数`)
     throw new Error('Too Many Requests')
   } else {
-    console.log(`${ip} 当前请求次数为 ${requestTimes[ip]}`)
+    logger.log(`${ip} 当前请求次数为 ${requestTimes[ip]}`)
   }
 }
 
@@ -869,7 +900,7 @@ async function readConfig () {
     config = res || {}
     return config
   } catch (e) {
-    console.error('读取配置失败：', e)
+    logger.error('读取配置失败：', e)
     await createCollections()
     config = {}
     return config
@@ -879,7 +910,7 @@ async function readConfig () {
 // 写入配置
 async function writeConfig (newConfig) {
   if (!Object.keys(newConfig).length) return 0
-  console.log('写入配置：', newConfig)
+  logger.info('写入配置：', newConfig)
   try {
     let updated
     let res = await db
@@ -896,7 +927,7 @@ async function writeConfig (newConfig) {
     if (updated > 0) config = null
     return updated
   } catch (e) {
-    console.error('写入配置失败：', e)
+    logger.error('写入配置失败：', e)
     return null
   }
 }
@@ -914,7 +945,7 @@ async function createCollections () {
     try {
       res[collection] = await db.createCollection(collection)
     } catch (e) {
-      console.error('建立数据库失败：', e)
+      logger.error('建立数据库失败：', e)
     }
   }
   return res
@@ -926,7 +957,7 @@ function getIp (request) {
     const headers = TWIKOO_IP_HEADERS ? JSON.parse(TWIKOO_IP_HEADERS) : []
     return getUserIP(request, headers)
   } catch (e) {
-    console.error('获取 IP 错误信息：', e)
+    logger.error('获取 IP 错误信息：', e)
   }
   return getUserIP(request)
 }

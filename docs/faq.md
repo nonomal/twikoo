@@ -2,7 +2,7 @@
 
 ## 如何修改头像？
 
-请前往 [https://cravatar.cn](https://cravatar.cn) 通过邮箱注册并设定头像，评论时，请留下相同的邮箱。
+请前往 [https://weavatar.com](https://weavatar.com) 通过邮箱注册并设定头像，评论时，请留下相同的邮箱。
 
 访客还可以通过输入数字 QQ 邮箱地址，使用 QQ 头像发表评论。
 
@@ -15,6 +15,14 @@
 1. 进入[环境-登录授权](https://console.cloud.tencent.com/tcb/env/login)，点击“自定义登录”右边的“私钥下载”，下载私钥文件
 2. 用文本编辑器打开私钥文件，复制全部内容
 3. 点击评论窗口的“小齿轮”图标，粘贴私钥文件内容，并设置管理员密码
+
+## 忘记暗号，无法进入管理面板怎么办？
+
+在包含评论框的页面，打开浏览器开发者工具（Windows 下快捷键为 F12），点击 Network 标签，刷新一下页面，点击放大镜图标（Search），在出现的搜索栏中输入 `HIDE_ADMIN_CRYPT`，点击搜索栏旁边的刷新图标（Refresh），即可找到您的暗号。
+
+![](./static/faq-1.png)
+
+请注意，暗号并非管理面板的加密手段，仅用于向普通访客隐藏管理面板，请勿把暗号和管理面板的密码设置为相同的字符串。
 
 ## 如何开启文章访问量统计？
 
@@ -72,7 +80,7 @@ Twikoo 支持接入腾讯云文本内容检测，使用深度学习技术，识�
 
 1. 访问[腾讯云控制台-文本内容安全](https://console.cloud.tencent.com/cms/text/overview)，开通文本内容安全服务
 2. 访问[腾讯云控制台-用户列表](https://console.cloud.tencent.com/cam)，点击新建用户，点击快速创建
-3. 输入用户名，访问方式选择“编程访问”，用户权限取消“AdministratorAccess”，只勾选“QcloudCMSFullAccess”
+3. 输入用户名，访问方式选择“编程访问”，用户权限取消“AdministratorAccess”，只勾选“QcloudTMSFullAccess”
 4. 点击“创建用户”
 5. 复制“成功新建用户”页面的“SecretId”和“SecretKey”，到 Twikoo 管理面板“反垃圾”模块中配置
 6. 测试反垃圾效果
@@ -101,6 +109,10 @@ Akismet (Automattic Kismet) 是应用广泛的一个垃圾留言过滤系统，�
 
 如果是 Vercel 部署的云函数，请配置国外邮件服务商，避免被邮件服务商判定为垃圾邮件行为。如果是其他原因，请前往 Twikoo 管理面板，找到邮件测试功能，输入个人邮箱，根据测试结果排查原因。
 
+如果是 Vercel 部署的云函数，邮件测试正常，但实际评论收不到任何即时消息通知 / 邮件通知，请打开 Vercel 云函数管理页面，进入 Settings - Deployment Protection，设置 Vercel Authentication 为 Disabled，并 Save。
+
+![](./static/vercel-1.png)
+
 为了避免频繁检查邮箱带来的性能问题，邮件配置有 10 分钟左右的缓存，如果确定配置没有问题，但测试失败，可以等待 10 分钟后再测试。
 
 由于博主发表评论时，不会通知博主，如果您想实际测试通知功能，请注销管理面板后用非博主邮箱发表或回复评论。
@@ -118,8 +130,20 @@ Akismet (Automattic Kismet) 是应用广泛的一个垃圾留言过滤系统，�
 
 ## 私有部署能连接自己的数据库吗？
 
-不能。私有部署不需要连接外部数据库，数据存储在启动 twikoo 时所在目录下的 data 目录，您可以直接复制该目录以完成数据备份。
+Twikoo 私有部署版默认使用内置数据库：LokiJS 数据库，支持的数据库容量大约为 1 GB，不需要连接外部数据库，数据存储在启动 twikoo 时所在目录下的 data 目录，您可以直接复制该目录以完成数据备份。
 
-twikoo 私有部署版使用内置数据库。如果连接外部数据库，会增加部署难度，导致诸如 _连接字符串不会配置、服务器内存不足、数据库版本不兼容、高 ping、连接不稳定_ 等麻烦事。
+如果您有 MongoDB 实例，可以连接 MongoDB 作为外部数据库，只需配置环境变量 MONGODB_URI 为数据库连接地址即可，如：`mongodb://<username>:<password>@<host>/`。
 
-twikoo 内置的数据库为 LokiJS 数据库，支持的数据库容量大约为 1 GB。
+## 部署后遇到评论失败: 0，管理面板进不去？
+
+在包含评论框的页面，打开浏览器开发者工具（Windows 下快捷键为 F12），点击 Console 标签，查找包含 twikoo 关键字的报错。
+
+如果看到 ERR_BLOCKED_BY_CLIENT，请禁用浏览器去广告插件或将当前网站加入白名单，然后刷新重试。
+
+如果看到 ERR_CONNECTION_CLOSED / ERR_CONNECTION_TIMED_OUT / ERR_CONNECTION_RESET，请检查自己所处的地区网络环境是否正常，能够连通云函数，部分地区无法访问 Vercel 等服务，请更换部署方式再试。
+
+如果看到 `Access to XMLHttpRequest at 'https://tcb-api.tencentcloudapi.com/web?env=...' from origin '...' has been blocked by CORS policy...`：请检查前端 js 文件版本是否最新，并确保 envId 以 `https://` 开头。
+
+如果看到 `Access to XMLHttpRequest at ... No 'Access-Control-Allow-Origin' header is present on the requested resource.`：请先访问一下 envId 查看云函数是否运行正常，如果没有运行正常的提示，请重新部署云函数，确保不要漏下任何步骤；如果提示运行正常，请本地启动网站（localhost）并访问管理面板-配置管理-通用，清空 `CORS_ALLOW_ORIGIN` 字段并保存，然后刷新重试。
+
+如果看到其他错误，请 [提交 issue](https://github.com/twikoojs/twikoo/issues/new) 并附上错误信息。

@@ -1,7 +1,7 @@
 <template>
-  <div class="tk-submit">
+  <div class="tk-submit tk-fade-in" ref="tk-submit">
     <div class="tk-row">
-      <tk-avatar :config="config" :mail="mail" />
+      <tk-avatar :config="config" :mail="mail" :nick="nick" />
       <div class="tk-col">
         <tk-meta-input :nick="nick" :mail="mail" :link="link" @update="onMetaUpdate" :config="config" />
         <el-input class="tk-input"
@@ -41,6 +41,9 @@
           size="small"
           :disabled="!canSend"
           @click="send">{{ isSending ? t('SUBMIT_SENDING') : t('SUBMIT_SEND') }}</el-button>
+      <div class="tk-turnstile-container" ref="turnstile-container">
+        <div class="tk-turnstile" ref="turnstile"></div>
+      </div>
     </div>
     <div class="tk-preview-container" v-if="isPreviewing" v-html="commentHtml" ref="comment-preview"></div>
   </div>
@@ -53,7 +56,7 @@ import iconImage from '@fortawesome/fontawesome-free/svgs/regular/image.svg'
 import Clickoutside from 'element-ui/src/utils/clickoutside'
 import TkAvatar from './TkAvatar.vue'
 import TkMetaInput from './TkMetaInput.vue'
-import { marked, call, logger, renderLinks, renderMath, renderCode, initOwoEmotion, initMarkedOwo, t, getUrl, blobToDataURL } from '../../utils'
+import { marked, call, logger, renderLinks, renderMath, renderCode, initOwoEmotions, initMarkedOwo, t, getUrl, getHref, blobToDataURL, getUserAgent } from '../../utils'
 import OwO from '../../lib/owo'
 
 const imageTypes = [
@@ -94,6 +97,7 @@ export default {
       nick: '',
       mail: '',
       link: '',
+      turnstileLoad: null,
       iconMarkdown,
       iconEmotion,
       iconImage
@@ -132,7 +136,7 @@ export default {
     },
     async initOwo () {
       if (this.config.SHOW_EMOTION === 'true') {
-        const odata = await initOwoEmotion(this.config.EMOTION_CDN || 'https://owo.imaegoo.com/owo.json')
+        const odata = await initOwoEmotions(this.config.EMOTION_CDN || 'https://owo.imaegoo.com/owo.json')
         this.owo = new OwO({
           logo: iconEmotion, // OwO button text, default: `OωO表情`
           container: this.$refs.owo, // OwO container, default: `document.getElementsByClassName('OwO')[0]`
@@ -143,6 +147,36 @@ export default {
         })
         marked.setOptions({ odata: initMarkedOwo(odata) })
       }
+    },
+    initTurnstile () {
+      if (!this.config.TURNSTILE_SITE_KEY) return
+      if (window.turnstile) {
+        this.turnstileLoad = Promise.resolve()
+        return
+      }
+      this.turnstileLoad = new Promise((resolve, reject) => {
+        const scriptEl = document.createElement('script')
+        scriptEl.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit'
+        scriptEl.onload = resolve
+        scriptEl.onerror = reject
+        this.$refs['turnstile-container'].appendChild(scriptEl)
+      })
+    },
+    getTurnstileToken () {
+      return new Promise((resolve, reject) => {
+        this.turnstileLoad.then(() => {
+          const widgetId = window.turnstile.render(this.$refs.turnstile, {
+            sitekey: this.config.TURNSTILE_SITE_KEY,
+            callback: (token) => {
+              resolve(token)
+              setTimeout(() => {
+                window.turnstile.remove(widgetId)
+              }, 5000)
+            },
+            'error-callback': reject
+          })
+        })
+      })
     },
     onMetaUpdate (updates) {
       this.nick = updates.meta.nick
@@ -168,7 +202,7 @@ export default {
           renderLinks(this.$refs['comment-preview'])
           renderMath(this.$refs['comment-preview'], this.$twikoo.katex)
           if (this.config.HIGHLIGHT === 'true') {
-            renderCode(this.$refs['comment-preview'], this.config.HIGHLIGHT_THEME)
+            renderCode(this.$refs['comment-preview'], this.config.HIGHLIGHT_THEME, this.config.HIGHLIGHT_PLUGIN)
           }
         })
       }
@@ -179,17 +213,19 @@ export default {
         if (this.comment.match(new RegExp(`!\\[${t('IMAGE_UPLOAD_PLACEHOLDER')}.+\\]\\(\\)`))) {
           throw new Error(t('IMAGE_UPLOAD_PLEASE_WAIT'))
         }
-        const url = getUrl(this.$twikoo.path)
         const comment = {
           nick: this.nick,
           mail: this.mail,
           link: this.link,
-          ua: navigator.userAgent,
-          url,
-          href: window.location.href,
+          ua: await getUserAgent(),
+          url: getUrl(this.$twikoo.path),
+          href: getHref(this.$twikoo.href),
           comment: marked(this.comment),
           pid: this.pid ? this.pid : this.replyId,
           rid: this.replyId
+        }
+        if (this.config.TURNSTILE_SITE_KEY) {
+          comment.turnstileToken = await this.getTurnstileToken()
         }
         const sendResult = await call(this.$tcb, 'COMMENT_SUBMIT', comment)
         if (sendResult && sendResult.result && sendResult.result.id) {
@@ -310,6 +346,7 @@ export default {
       }
     },
     uploadCompleted (fileIndex, fileName, fileType, fileUrl) {
+      fileName = fileName.replace(/[[\]]/g, '_')
       this.comment = this.comment.replace(this.getImagePlaceholder(fileIndex, fileType), `![${fileName}](${fileUrl})`)
       this.$refs.inputFile.value = ''
     },
@@ -335,10 +372,17 @@ export default {
     }
   },
   mounted () {
+    if (this.pid) {
+      this.$refs['tk-submit'].scrollIntoView({
+        behavior: 'instant',
+        block: 'center'
+      })
+    }
     this.initDraft()
     this.initOwo()
     this.addEventListener()
     this.onBgImgChange()
+    this.initTurnstile()
   },
   watch: {
     'config.SHOW_EMOTION': function () {
@@ -346,6 +390,9 @@ export default {
     },
     'config.COMMENT_BG_IMG': function () {
       this.onBgImgChange()
+    },
+    'config.TURNSTILE_SITE_KEY': function () {
+      this.initTurnstile()
     }
   }
 }
@@ -412,6 +459,16 @@ export default {
   background-position: right bottom;
   background-repeat: no-repeat;
 }
+.tk-turnstile-container {
+  position: absolute;
+  right: 0;
+  bottom: -75px;
+  z-index: 1;
+}
+.tk-turnstile {
+  display: flex;
+  flex-direction: column;
+}
 .tk-preview-container {
   margin-left: 3rem;
   margin-bottom: 1rem;
@@ -419,5 +476,17 @@ export default {
   border: 1px solid rgba(128,128,128,0.31);
   border-radius: 4px;
   word-break: break-word;
+}
+.tk-fade-in {
+  animation: tkFadeIn .3s;
+}
+@keyframes tkFadeIn {
+  0% {
+    opacity: 0
+  }
+
+  to {
+    opacity: 1
+  }
 }
 </style>

@@ -3,7 +3,7 @@
     <div class="tk-admin-warn" v-if="clientVersion !== serverVersion">
       <span>{{ t('ADMIN_CLIENT_VERSION') }}{{ clientVersion }}，</span>
       <span>{{ t('ADMIN_SERVER_VERSION') }}{{ serverVersion }}，</span>
-      <span>请参考&nbsp;<a href="https://twikoo.js.org/quick-start.html#%E7%89%88%E6%9C%AC%E6%9B%B4%E6%96%B0" target="_blank">版本更新</a>&nbsp;进行升级</span>
+      <span>请参考&nbsp;<a href="https://twikoo.js.org/update.html" target="_blank">版本更新</a>&nbsp;进行升级</span>
     </div>
     <div class="tk-admin-comment-filter">
       <el-input
@@ -22,13 +22,13 @@
     <div class="tk-admin-comment-list" ref="comment-list">
       <div class="tk-admin-comment-item" v-for="comment in comments" :key="comment._id">
         <div class="tk-admin-comment-meta">
-          <tk-avatar :config="serverConfig" :avatar="comment.avatar" :mail="comment.mail" :link="comment.link" />
+          <tk-avatar :config="serverConfig" :avatar="comment.avatar" :nick="comment.nick" :mail="comment.mail" :link="comment.link" />
           <span v-if="!comment.link">{{ comment.nick }}&nbsp;</span>
           <a v-if="comment.link" :href="convertLink(comment.link)" target="_blank">{{ comment.nick }}&nbsp;</a>
           <span v-if="comment.mail">(<a :href="`mailto:${comment.mail}`">{{ comment.mail }}</a>)&nbsp;</span>
           <span v-if="comment.isSpam">{{ t('ADMIN_COMMENT_IS_SPAM_SUFFIX') }}&nbsp;</span>
           <span class="tk-time">{{ displayCreated(comment) }}&nbsp;</span>
-          <span>{{ comment.ipRegion }}</span>
+          <span :title="comment.ua">{{ comment.ipRegion }}</span>
         </div>
         <div class="tk-content" v-html="comment.comment" ref="comments"></div>
         <div class="tk-admin-actions">
@@ -174,7 +174,7 @@ export default {
     },
     highlightCode () {
       if (this.serverConfig.HIGHLIGHT === 'true') {
-        renderCode(this.$refs['comment-list'], this.serverConfig.HIGHLIGHT_THEME)
+        renderCode(this.$refs['comment-list'], this.serverConfig.HIGHLIGHT_THEME, this.serverConfig.HIGHLIGHT_PLUGIN)
       }
     }
   },
@@ -246,6 +246,9 @@ export default {
 }
 .tk-admin-comment .tk-avatar {
   margin-right: 0.5em;
+}
+.tk-admin-comment .tk-content {
+  max-height: none;
 }
 .tk-admin-actions {
   display: flex;
